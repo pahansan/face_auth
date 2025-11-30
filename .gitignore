@@ -1,0 +1,6 @@
+venv
+haarcascade_frontalface_default.xml
+opencv_face_detector.pbtxt
+opencv_face_detector_uint8.pb
+trainer
+dataSet
