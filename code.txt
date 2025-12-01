@@ -1,0 +1,220 @@
+==> src/face_gen.py <==
+import os
+import time
+
+import cv2
+
+detector = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+need     = 20
+offset   = 50
+step     = 1
+user_id  = input('Введите номер пользователя: ')
+
+video    = cv2.VideoCapture(0)
+if not video.isOpened():
+    raise RuntimeError('Камера не открывается')
+
+print('📹 Идёт запись… Нажмите Q для досрочного завершения')
+buffer = []
+start  = time.time()
+
+while len(buffer) < 150:
+    ok, frame = video.read()
+    if not ok:
+        break
+
+    buffer.append(frame.copy())
+    cv2.imshow('recording', frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cv2.destroyAllWindows()
+video.release()
+print(f'Записано {len(buffer)} кадров, обработка...')
+
+saved = 0
+h_max, w_max = buffer[0].shape[:2]
+
+for idx in range(0, len(buffer), step):
+    gray = cv2.cvtColor(buffer[idx], cv2.COLOR_BGR2GRAY)
+    faces = detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(100, 100))
+
+    for (x, y, w, h) in faces:
+
+        y1 = max(y - offset, 0)
+        y2 = min(y + h + offset, h_max)
+        x1 = max(x - offset, 0)
+        x2 = min(x + w + offset, w_max)
+
+        face_roi = gray[y1:y2, x1:x2]
+        if face_roi.size == 0:
+            continue
+
+        cv2.imwrite(f'dataSet/face-{user_id}.{saved+1}.jpg', face_roi)
+        saved += 1
+
+print(f'✅ Сохранено {saved} лиц')
+
+==> src/face_train.py <==
+import os
+
+import cv2
+import numpy as np
+from PIL import Image
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+from sklearn.model_selection import train_test_split
+
+cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+recognizer = cv2.face.LBPHFaceRecognizer_create()
+
+dataPath = 'dataSet'
+faces, labels = [], []
+
+for fname in os.listdir(dataPath):
+    print(fname)
+    if not fname.lower().endswith(('.jpg', '.png')):
+        continue
+    try:
+        user_id = int(fname.split('.')[0].replace('face-', ''))
+    except ValueError:
+        continue
+
+    img = Image.open(os.path.join(dataPath, fname)).convert('L')
+    img_np = np.array(img, 'uint8')
+    detections = cascade.detectMultiScale(img_np)
+    for (x, y, w, h) in detections:
+        faces.append(img_np[y:y + h, x:x + w])
+        labels.append(user_id)
+
+if not faces:
+    raise RuntimeError('В dataSet не найдено ни одного лица')
+
+X_tr, X_val, y_tr, y_val = train_test_split(
+    faces, labels, test_size=0.2, random_state=42, stratify=labels)
+
+recognizer.train(X_tr, np.array(y_tr))
+
+y_pred = [recognizer.predict(f)[0] for f in X_val]
+acc = accuracy_score(y_val, y_pred)
+prec, rec, f1, _ = precision_recall_fscore_support(
+    y_val, y_pred, average='weighted', zero_division=0)
+
+print(f'Accuracy : {acc:.3f}')
+print(f'Precision: {prec:.3f}')
+print(f'Recall   : {rec:.3f}')
+print(f'F1-score : {f1:.3f}')
+
+MIN_ACC = 0.85
+if acc >= MIN_ACC:
+    os.makedirs('trainer', exist_ok=True)
+    recognizer.write('trainer/trainer.yml')
+    print('✅ Модель сохранена')
+else:
+    print('❌ Модель не сохранена (низкое качество)')
+
+==> src/recognize.py <==
+import os
+
+import cv2
+
+faceProto = "opencv_face_detector.pbtxt"
+faceModel = "opencv_face_detector_uint8.pb"
+faceNet = cv2.dnn.readNet(faceModel, faceProto)
+
+recognizer = cv2.face.LBPHFaceRecognizer_create()
+
+path = os.path.dirname(os.path.abspath(__file__))
+trainer_path = os.path.join(path, 'trainer', 'trainer.yml')
+trainer_path = 'trainer/trainer.yml'
+
+if not os.path.exists(trainer_path):
+    print(f"❌ Ошибка: Файл {trainer_path} не найден")
+    exit()
+
+recognizer.read(trainer_path)
+print(f"✅ Модель успешно загружена")
+
+names = {
+    1: "Pasha",
+    2: "Nikita",
+}
+
+CONFIDENCE_THRESHOLD = 70
+PADDING = 20
+
+def highlightFace(net, frame, conf_threshold=0.7):
+    """Обнаруживает лица с помощью DNN"""
+    frameOpencvDnn = frame.copy()
+    frameHeight, frameWidth = frameOpencvDnn.shape[:2]
+
+    blob = cv2.dnn.blobFromImage(frameOpencvDnn, 1.0, (300, 300), [104, 117, 123], True, False)
+    net.setInput(blob)
+    detections = net.forward()
+
+    faceBoxes = []
+    for i in range(detections.shape[2]):
+        confidence = detections[0, 0, i, 2]
+        if confidence > conf_threshold:
+            x1 = int(detections[0, 0, i, 3] * frameWidth)
+            y1 = int(detections[0, 0, i, 4] * frameHeight)
+            x2 = int(detections[0, 0, i, 5] * frameWidth)
+            y2 = int(detections[0, 0, i, 6] * frameHeight)
+            faceBoxes.append([x1, y1, x2, y2])
+
+    return frameOpencvDnn, faceBoxes
+
+video = cv2.VideoCapture(0)
+
+if not video.isOpened():
+    print("❌ Не удалось открыть камеру")
+    exit()
+
+print("📹 Камера запущена. Нажмите 'Q' для выхода")
+
+while True:
+    hasFrame, frame = video.read()
+    if not hasFrame:
+        break
+
+    resultImg, faceBoxes = highlightFace(faceNet, frame, conf_threshold=0.2)
+
+    if not faceBoxes:
+        cv2.putText(resultImg, "Лица не обнаружены", (10, 30),
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+    else:
+        for faceBox in faceBoxes:
+            x1, y1, x2, y2 = faceBox
+
+            x1_pad = max(0, x1 - PADDING)
+            y1_pad = max(0, y1 - PADDING)
+            x2_pad = min(frame.shape[1], x2 + PADDING)
+            y2_pad = min(frame.shape[0], y2 + PADDING)
+
+            face_roi = frame[y1_pad:y2_pad, x1_pad:x2_pad]
+            if face_roi.size == 0:
+                continue
+
+            gray_roi = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
+
+            label_id, confidence = recognizer.predict(gray_roi)
+
+            if confidence < CONFIDENCE_THRESHOLD:
+                name = names.get(label_id, f"ID:{label_id}")
+                text = f"{name} ({int(confidence)})"
+                color = (0, 255, 0)  # Зелёный
+            else:
+                text = "Unknown"
+                color = (0, 0, 255)  # Красный
+
+            cv2.rectangle(resultImg, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(resultImg, text, (x1, y1 - 10),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+    cv2.imshow("Face detection and recognition", resultImg)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+video.release()
+cv2.destroyAllWindows()
+print("👋 Программа завершена")

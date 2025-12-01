@@ -1,59 +1,55 @@
-# подключаем библиотеку компьютерного зрения
-# библиотека для вызова системных функций
 import os
 
 import cv2
-
-# для обучения нейросетей
 import numpy as np
-
-# встроенная библиотека для работы с изображениями
 from PIL import Image
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+from sklearn.model_selection import train_test_split
 
-# получаем путь к этому скрипту
-path = os.path.dirname(os.path.abspath(__file__))
-# создаём новый распознаватель лиц
+cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
 recognizer = cv2.face.LBPHFaceRecognizer_create()
-# указываем, что мы будем искать лица по примитивам Хаара
-faceCascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-# путь к датасету с фотографиями пользователей
+
 dataPath = 'dataSet'
+faces, labels = [], []
 
-# получаем картинки и подписи из датасета
-def get_images_and_labels(datapath):
-     # получаем путь к картинкам
-     image_paths = [os.path.join(datapath, f) for f in os.listdir(datapath)]
-     # списки картинок и подписей на старте пустые
-     images = []
-     labels = []
-     # перебираем все картинки в датасете
-     for image_path in image_paths:
-         # читаем картинку и сразу переводим в ч/б
-         image_pil = Image.open(image_path).convert('L')
-         # переводим картинку в numpy-массив
-         image = np.array(image_pil, 'uint8')
-         # получаем id пользователя из имени файла
-         nbr = int(os.path.split(image_path)[1].split(".")[0].replace("face-", ""))
-         # определяем лицо на картинке
-         faces = faceCascade.detectMultiScale(image)
-         # если лицо найдено
-         for (x, y, w, h) in faces:
-             # добавляем его к списку картинок
-             images.append(image[y: y + h, x: x + w])
-             # добавляем id пользователя в список подписей
-             labels.append(nbr)
-             # выводим текущую картинку на экран
-             cv2.imshow("Adding faces to traning set...", image[y: y + h, x: x + w])
-             # делаем паузу
-             cv2.waitKey(100)
-     # возвращаем список картинок и подписей
-     return images, labels
+for fname in os.listdir(dataPath):
+    print(fname)
+    if not fname.lower().endswith(('.jpg', '.png')):
+        continue
+    try:
+        user_id = int(fname.split('.')[0].replace('face-', ''))
+    except ValueError:
+        continue
 
-# получаем список картинок и подписей
-images, labels = get_images_and_labels(dataPath)
-# обучаем модель распознавания на наших картинках и учим сопоставлять её лица и подписи к ним
-recognizer.train(images, np.array(labels))
-# сохраняем модель
-recognizer.save('trainer/trainer.yml')
-# удаляем из памяти все созданные окнаы
-cv2.destroyAllWindows()
+    img = Image.open(os.path.join(dataPath, fname)).convert('L')
+    img_np = np.array(img, 'uint8')
+    detections = cascade.detectMultiScale(img_np)
+    for (x, y, w, h) in detections:
+        faces.append(img_np[y:y + h, x:x + w])
+        labels.append(user_id)
+
+if not faces:
+    raise RuntimeError('В dataSet не найдено ни одного лица')
+
+X_tr, X_val, y_tr, y_val = train_test_split(
+    faces, labels, test_size=0.2, random_state=42, stratify=labels)
+
+recognizer.train(X_tr, np.array(y_tr))
+
+y_pred = [recognizer.predict(f)[0] for f in X_val]
+acc = accuracy_score(y_val, y_pred)
+prec, rec, f1, _ = precision_recall_fscore_support(
+    y_val, y_pred, average='weighted', zero_division=0)
+
+print(f'Accuracy : {acc:.3f}')
+print(f'Precision: {prec:.3f}')
+print(f'Recall   : {rec:.3f}')
+print(f'F1-score : {f1:.3f}')
+
+MIN_ACC = 0.85
+if acc >= MIN_ACC:
+    os.makedirs('trainer', exist_ok=True)
+    recognizer.write('trainer/trainer.yml')
+    print('✅ Модель сохранена')
+else:
+    print('❌ Модель не сохранена (низкое качество)')
