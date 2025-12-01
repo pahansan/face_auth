@@ -1,6 +1,10 @@
 opencv-python
 opencv-contrib-python
-Pillow
 numpy
-matplotlib
 scikit-learn
+scikit-image
+imutils
+Pillow
+matplotlib
+seaborn
+joblib

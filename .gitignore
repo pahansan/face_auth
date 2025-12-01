@@ -4,3 +4,5 @@ opencv_face_detector.pbtxt
 opencv_face_detector_uint8.pb
 trainer
 dataSet
+names
+reports
