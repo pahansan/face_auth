@@ -3,7 +3,6 @@ import time
 from collections import Counter
 
 import cv2
-import imutils
 import joblib
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,7 +11,6 @@ from PIL import Image
 from sklearn.metrics import (
     accuracy_score,
     confusion_matrix,
-    precision_recall_fscore_support,
 )
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
@@ -141,32 +139,21 @@ for i, params in enumerate(param_sets):
         confidences.append(confidence)
 
     accuracy = accuracy_score(y_test, y_pred)
-    prec, rec, f1, _ = precision_recall_fscore_support(
-        y_test, y_pred, average='weighted', zero_division=0
-    )
 
     results.append({
         'params': params,
         'accuracy': accuracy,
-        'precision': prec,
-        'recall': rec,
-        'f1': f1,
         'model': recognizer
     })
 
     print(f"    Accuracy:  {accuracy:.3f}")
-    print(f"    Precision: {prec:.3f}")
-    print(f"    Recall:    {rec:.3f}")
-    print(f"    F1-score:  {f1:.3f}")
 
     if accuracy > best_accuracy:
         best_accuracy = accuracy
         best_model = recognizer
         best_params = params
 
-print("\n" + "="*50)
 print("РЕЗУЛЬТАТЫ ОБУЧЕНИЯ")
-print("="*50)
 
 print(f"\nЛучшая модель:")
 print(f"  Параметры: {best_params}")
@@ -218,7 +205,6 @@ if best_accuracy >= MIN_ACCURACY:
 
     with open('reports/training_report.txt', 'w', encoding='utf-8') as f:
         f.write("ОТЧЕТ ОБ ОБУЧЕНИИ МОДЕЛИ РАСПОЗНАВАНИЯ ЛИЦ\n")
-        f.write("="*50 + "\n\n")
         f.write(f"Дата обучения: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Количество классов: {len(set(labels))}\n")
         f.write(f"Общее количество изображений: {len(faces)}\n")
@@ -235,9 +221,6 @@ if best_accuracy >= MIN_ACCURACY:
             f.write(f"\n  Модель {i+1}:\n")
             f.write(f"    Параметры: {res['params']}\n")
             f.write(f"    Accuracy:  {res['accuracy']:.3f}\n")
-            f.write(f"    Precision: {res['precision']:.3f}\n")
-            f.write(f"    Recall:    {res['recall']:.3f}\n")
-            f.write(f"    F1-score:  {res['f1']:.3f}\n")
 
         f.write(f"\nЛУЧШАЯ МОДЕЛЬ:\n")
         f.write(f"  Параметры: {best_params}\n")
@@ -257,11 +240,6 @@ else:
     print("   1. Соберите больше данных")
     print("   2. Увеличьте разнообразие изображений")
     print("   3. Проверьте качество исходных изображений")
-
-print("\n" + "="*50)
-print(f'Precision: {prec:.3f}')
-print(f'Recall   : {rec:.3f}')
-print(f'F1-score : {f1:.3f}')
 
 MIN_ACC = 0.85
 if best_accuracy >= MIN_ACC:
